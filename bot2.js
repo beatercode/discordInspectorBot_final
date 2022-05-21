@@ -126,7 +126,7 @@ async function scan() {
                 client.channels.cache.get(GENERAL_CHANNEL_ID).send({ embeds: [exampleEmbed] });
                 outputString = '';
             }
-            outputString += `\nWallet [${wallet}] ${inn.oprazione} ${inn.target} ${inn.occurence} times`;
+            outputString += `\nWallet [*${wallet}*] ${inn.oprazione} **${inn.occurence} ${inn.target}**`;
         });
     });
     //return msg.channel.createMessage(```md\n${outputString}```);
@@ -174,8 +174,7 @@ async function manualScan(msg) {
                 msg.channel.send({ embeds: [exampleEmbed] });
                 outputString = '';
             }
-            var op = inn.oprazione == "ha comprato" ? "bought" : "sold"; 
-            outputString += `\nWallet [*${wallet}*] ${op} **${inn.occurence} ${inn.target}**`;
+            outputString += `\nWallet [*${wallet}*] ${inn.oprazione} **${inn.occurence} ${inn.target}**`;
         });
     });
     //return msg.channel.createMessage(```md\n${outputString}```);
@@ -190,7 +189,7 @@ async function manualScan(msg) {
 
 async function callScan() {
     return new Promise(function (resolve, reject) {
-        axios.get('http://localhost:3000/scan')
+        axios.get('https://dao-inspector-server-beatercode.vercel.app/scan')
             .then(response => {
                 resolve(JSON.parse(JSON.stringify(response.data)));
             })
