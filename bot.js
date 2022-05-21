@@ -1,38 +1,100 @@
-const eris = require('eris');
-const axios = require('axios');
 const { MessageEmbed } = require('discord.js');
-const PREFIX = '!';
+const axios = require('axios');
+const { REST } = require('@discordjs/rest');
+const { Routes } = require('discord-api-types/v9');
+const CLIENT_ID = '977333092110979092';
+const GUILD_ID = '977333696917041193';
+const GENERAL_CHANNEL_ID = '977333697357422622';
+const cron = require("cron");
+const moment = require("moment");
 
-// Create a Client instance with our bot token.
-const bot = new eris.Client('OTc3MzMzMDkyMTEwOTc5MDky.Gtpi13.vwz41yjbkBspyQtbNUoc7A8_VVLVBUbQsYeqqg');
+const commands = [{
+    name: 'scan',
+    description: 'Summarize a Solana biggest wallets scan'
+}, {
+    name: 'fullscan',
+    description: 'Perform a deep tsx scan'
+}];
+const rest = new REST({ version: '9' }).setToken('OTc3MzMzMDkyMTEwOTc5MDky.Gtpi13.vwz41yjbkBspyQtbNUoc7A8_VVLVBUbQsYeqqg');
 
-// When the bot is connected and ready, log to console.
-bot.on('ready', () => {
-    console.log('Connected and ready.');
+(async () => {
+    try {
+        console.log('Started refreshing application (/) commands.');
+
+        await rest.put(
+            Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+            { body: commands },
+        );
+
+        console.log('Successfully reloaded application (/) commands.');
+    } catch (error) {
+        console.error(error);
+    }
+})();
+
+const { Client, Intents } = require('discord.js');
+const client = new Client({ intents: [Intents.FLAGS.GUILDS] });
+
+const job = new cron.CronJob('0 0 1 * * *', () => {
+    scan();
 });
 
-const commandHandlerForCommandName = {};
-commandHandlerForCommandName['fullscan'] = async (msg) => {
+client.on('ready', () => {
+    console.log(`Logged in as ${client.user.tag}!`);
+    job.start();
+});
+
+client.on('interactionCreate', async interaction => {
+    if (!interaction.isCommand()) return;
+
+    if (interaction.commandName === 'ping') {
+        await interaction.reply('Pong!');
+    }
+    if (interaction.commandName === 'scan') {
+        await manualScan(interaction);
+    }
+    if (interaction.commandName === 'fullscan') {
+        await fullScan(interaction);
+    }
+});
+
+/* ------ LOGIC START ------ */
+
+async function fullScan(msg) {
+
+    if (!msg.member.roles.cache.some(r => r.name === "VIP")) {
+        msg.reply("You can't use this command!");
+    }
+
     const res = await callScan();
     if (res.length == 0) return;
     var outputString = '';
-    outputString += "Timeframe [24h]\n";
+    outputString += "Timeframe [1h][Mode: full]";
     outputString += "Analyzed wallet [41]\n";
     res.forEach(function (obj) {
-        if (outputString.length > 1500) {
-            msg.channel.createMessage(outputString);
+        if (outputString.length > 3500) {
+            var exampleEmbed = new MessageEmbed()
+                .setColor('#0000A3')
+                .setDescription(outputString);
+            msg.channel.send({ embeds: [exampleEmbed] });
             outputString = '';
         }
         outputString += `\nWallet [${obj.wallet}] ${obj.operazione} ${obj.target}`;
     });
-    return msg.channel.createMessage(outputString);
+    var exampleEmbed = new MessageEmbed()
+        .setColor('#0000A3')
+        .setDescription(outputString);
+    return msg.channel.send({ embeds: [exampleEmbed] });
 };
-commandHandlerForCommandName['scan'] = async (msg) => {
+
+async function scan() {
 
     const res = await callScan();
     if (res.length == 0) return;
     var outputString = '';
-    outputString += "Timeframe [24h]\n";
+    var nowH = moment(new Date()).format('HH:mm:ss a');
+    var beforeH = moment(subtractHours(1, new Date())).format('HH:mm:ss a');
+    outputString += "Timeframe [1h][" + nowH + " - " + beforeH + "]\n";
     outputString += "Analyzed wallet [41]\n";
     const account = res.reduce((acc, cur) => {
         const idx = cur.id;
@@ -41,7 +103,6 @@ commandHandlerForCommandName['scan'] = async (msg) => {
         return acc;
     }, [])
 
-    /*
     account.forEach(function (obj) {
 
         var wallet = obj[0].wallet;
@@ -58,71 +119,77 @@ commandHandlerForCommandName['scan'] = async (msg) => {
         }, []);
 
         result.forEach(function (inn) {
-            if (outputString.length > 1500) {
-                msg.channel.createMessage(```md\n${outputString}```);
+            if (outputString.length > 3500) {
+                var exampleEmbed = new MessageEmbed()
+                    .setColor('#0099ff')
+                    .setDescription(outputString);
+                client.channels.cache.get(GENERAL_CHANNEL_ID).send({ embeds: [exampleEmbed] });
                 outputString = '';
             }
-            outputString += `\nWallet [${wallet}] ${inn.oprazione} ${inn.target} ${inn.occurence} times`;
+            outputString += `\nWallet [*${wallet}*] ${inn.oprazione} **${inn.occurence} ${inn.target}**`;
         });
     });
-    return msg.channel.createMessage(```md\n${outputString}```);
-    */
-    const exampleEmbed = new MessageEmbed()
-        .setColor('#0099ff')
-        .setTitle('Some title')
-        .setURL('https://discord.js.org/')
-        .setAuthor({ name: 'Some name', iconURL: 'https://i.imgur.com/AfFp7pu.png', url: 'https://discord.js.org' })
-        .setDescription('Some description here')
-        .setThumbnail('https://i.imgur.com/AfFp7pu.png')
-        .addFields(
-            { name: 'Regular field title', value: 'Some value here' },
-            { name: '\u200B', value: '\u200B' },
-            { name: 'Inline field title', value: 'Some value here', inline: true },
-            { name: 'Inline field title', value: 'Some value here', inline: true },
-        )
-        .addField('Inline field title', 'Some value here', true)
-        .setImage('https://i.imgur.com/AfFp7pu.png')
-        .setTimestamp()
-        .setFooter({ text: 'Some footer text here', iconURL: 'https://i.imgur.com/AfFp7pu.png' });
+    //return msg.channel.createMessage(```md\n${outputString}```);
 
-    client.channels.cache.get('id').send({ embeds: [exampleEmbed] });
+    var exampleEmbed = new MessageEmbed()
+        .setColor('#0099ff')
+        .setDescription(outputString);
+    return client.channels.cache.get(GENERAL_CHANNEL_ID).send({ embeds: [exampleEmbed] });
 };
 
-// Every time a message is sent anywhere the bot is present,
-// this event will fire and we will check if the bot was mentioned.
-// If it was, the bot will attempt to respond with "Present".
-bot.on('messageCreate', async (msg) => {
+async function manualScan(msg) {
 
-    const content = msg.content;
-    if (!msg.channel.guild) {
-        return;
-    }
-    if (!content.startsWith(PREFIX)) {
-        return;
-    }
+    const res = await callScan();
+    if (res.length == 0) return;
+    var outputString = '';
+    outputString += "Timeframe [1h][Mode: manual]\n";
+    outputString += "Analyzed wallet [41]\n";
+    const account = res.reduce((acc, cur) => {
+        const idx = cur.id;
+        if (acc[idx]) acc[idx].push(cur); // if already there, just push
+        else acc[idx] = [cur];            // otherwise initialise
+        return acc;
+    }, [])
 
-    const parts = content.split(' ').map(s => s.trim()).filter(s => s);
-    const commandName = parts[0].substr(PREFIX.length);
+    account.forEach(function (obj) {
 
-    const commandHandler = commandHandlerForCommandName[commandName];
-    if (!commandHandler) {
-        return;
-    }
-    try {
-        await commandHandler(msg);
-    } catch (err) {
-        console.warn('Error handling command');
-        console.warn(err);
-    }
-});
+        var wallet = obj[0].wallet;
+        var helper = {};
+        var result = obj.reduce(function (r, o) {
+            var key = o.operazione + " - " + trimNftName(o.target);
+            if (!helper[key]) {
+                helper[key] = { "oprazione": o.operazione, "target": trimNftName(o.target), "occurence": 1 }
+                r.push(helper[key]);
+            } else {
+                helper[key].occurence += 1;
+            }
+            return r;
+        }, []);
 
-bot.on('error', err => {
-    console.warn(err);
-});
+        result.forEach(function (inn) {
+            if (outputString.length > 3500) {
+                var exampleEmbed = new MessageEmbed()
+                    .setColor('#0099ff')
+                    .setDescription(outputString);
+                msg.channel.send({ embeds: [exampleEmbed] });
+                outputString = '';
+            }
+            outputString += `\nWallet [*${wallet}*] ${inn.oprazione} **${inn.occurence} ${inn.target}**`;
+        });
+    });
+    //return msg.channel.createMessage(```md\n${outputString}```);
+
+    var exampleEmbed = new MessageEmbed()
+        .setColor('#0099ff')
+        .setDescription(outputString);
+    return msg.channel.send({ embeds: [exampleEmbed] });
+};
+
+/* ------ LOGIC END ------ */
 
 async function callScan() {
     return new Promise(function (resolve, reject) {
-        axios.get('http://localhost:3000/scan')
+        axios.get('https://dao-inspector-server-beatercode.vercel.app/scan')
             .then(response => {
                 resolve(JSON.parse(JSON.stringify(response.data)));
             })
@@ -143,6 +210,9 @@ function groupArrayOfObjects(list, key) {
     }, {});
 };
 
-/* ---- LAUNCH BOT ------ */
+function subtractHours(numOfHours, date = new Date()) {
+    date.setHours(date.getHours() - numOfHours);
+    return date;
+}
 
-bot.connect();
+client.login('OTc3MzMzMDkyMTEwOTc5MDky.Gtpi13.vwz41yjbkBspyQtbNUoc7A8_VVLVBUbQsYeqqg');
