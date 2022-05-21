@@ -8,6 +8,7 @@ const GENERAL_CHANNEL_ID = '977333697357422622';
 const cron = require("cron");
 const moment = require("moment");
 
+
 const commands = [{
     name: 'scan',
     description: 'Summarize a Solana biggest wallets scan'
