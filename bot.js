@@ -1,6 +1,7 @@
 const express = require('express');
 const app = express();
 const port = 8008;
+const cronitor = require('cronitor')('cbaee3d8d9bb4bd090e5e26015a2813f');
 const { MessageEmbed } = require('discord.js');
 const axios = require('axios');
 const { REST } = require('@discordjs/rest');
@@ -8,117 +9,229 @@ const { Routes } = require('discord-api-types/v9');
 const CLIENT_ID = '977333092110979092';
 const GUILD_ID = '977333696917041193';
 const GENERAL_CHANNEL_ID = '977333697357422622';
-const cron = require("cron");
+const cron = require("node-cron");
 const moment = require("moment");
-const mySecret = process.env['bot_token'];
+const COMMAND_PREFIX = "/";
+const mySecret = 'OTc3MzMzMDkyMTEwOTc5MDky.GLzuJm.AnHrJQLOON28ws1AST16lLZnt-eAZLkF-uQCiI';
 const apiURL = 'https://daoinspectorserver.lucaminoi.repl.co/scan';
-
-
-const commands = [{
-  name: 'scan',
-  description: 'Summarize a Solana biggest wallets scan'
-}, {
-  name: 'fullscan',
-  description: 'Perform a deep tsx scan'
-}];
+const monitor = new cronitor.Monitor('ODA Wallet Inspect - Discord Bot');
 const rest = new REST({ version: '9' }).setToken(mySecret);
 
-(async () => {
-  try {
-    console.log('Started refreshing application (/) commands.');
-
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands },
-    );
-
-    console.log('Successfully reloaded application (/) commands.');
-  } catch (error) {
-    console.error(error);
-  }
-})();
-
 const { Client, Intents } = require('discord.js');
-const client = new Client({ intents: [Intents.FLAGS.GUILDS] });
+const client = new Client({
+  partials: ['MESSAGE', 'CHANNEL', 'REACTION'],
+  intents: ['DIRECT_MESSAGES', 'DIRECT_MESSAGE_REACTIONS', 'GUILD_MESSAGES', 'GUILD_MESSAGE_REACTIONS', 'GUILDS']
+});
 
-const job = new cron.CronJob('00 * * * *', () => {
-  scan();
+cron.schedule('00 */1 * * *', () => {
+  monitor.ping({ state: 'run' });
+  try {
+    scan(1);
+    monitor.ping({ state: 'complete' });
+  } catch (e) {
+    monitor.ping({ state: 'fail' });
+  }
 });
 
 client.on('ready', () => {
   console.log(`Logged in as ${client.user.tag}!`);
-  scan();
-  job.start();
 });
 
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isCommand()) return;
+client.on("messageCreate", async message => {
 
-  if (interaction.commandName === 'ping') {
-    await interaction.reply('Pong!');
+  if (!message.content.startsWith(COMMAND_PREFIX)) return;
+
+  const args = message.content.slice(COMMAND_PREFIX.length).trim().split(' ');
+  const command = args.shift().toLowerCase();
+  switch (command) {
+    case 'fullscan':
+      var hLimit = 1;
+      if (args.length > 0) {
+        if (args[0] == 'h' && args.length > 1 && !isNaN(args[1])) {
+          hLimit = args[1];
+        }
+      }
+      await fullScan(hLimit);
+      break;
+    case 'scan':
+      var hLimit = 1;
+      if (args.length > 0) {
+        if (args[0] == 'h' && args.length > 1 && !isNaN(args[1])) {
+          hLimit = args[1];
+        }
+      }
+      await scan(hLimit);
+      break;
+    case 'scanwallet':
+      var hLimit = 1;
+      if (args.length > 0) {
+        if (args[0] == 'h' && args.length > 1 && !isNaN(args[1])) {
+          hLimit = args[1];
+        }
+      }
+      await scanWallet(hLimit);
+      break;
+    case 'scancollections':
+      var hLimit = 1;
+      if (args.length > 0) {
+        if (args[0] == 'h' && args.length > 1 && !isNaN(args[1])) {
+          hLimit = args[1];
+        }
+      }
+      await scanCollections(hLimit);
+      break;
+    case 'scancollection':
+      var name = '';
+      var hLimit = 1;
+      var indexName = args.indexOf('n');
+      var indexLimit = args.indexOf('h');
+      if (indexName > -1) {
+        if (args.length > indexName && isNaN(args[indexName + 1])) {
+          name = args[indexName + 1];
+        }
+      }
+      if (indexLimit > -1) {
+        if (args.length > indexLimit && !isNaN(args[indexLimit + 1])) {
+          hLimit = args[indexLimit + 1];
+        }
+      }
+      await scanCollection(hLimit, name);
+      break;
+    default:
+      break;
   }
-  if (interaction.commandName === 'scan') {
-    await manualScan(interaction);
-  }
-  if (interaction.commandName === 'fullscan') {
-    await fullScan(interaction);
-  }
-  return;
-});
+})
 
 /* ------ LOGIC START ------ */
 
-async function fullScan(msg) {
+async function fullScan(hoursLimit) {
 
-  if (!msg.member.roles.cache.some(r => r.name === "VIP")) {
-    msg.reply("You can't use this command!");
+  try {
+    const res = await callScan();
+    var outputString = '';
+    outputString += "Timeframe [" + hoursLimit + "h][Mode: full]\n";
+    outputString += "Analyzed wallet [41]\n";
+    res.forEach(function(obj) {
+      var hours = Math.abs(new Date() - new Date(obj.date)) / 36e5;
+      if (!(hours < hoursLimit)) {
+        return;
+      }
+      if (outputString.length > 3500) {
+        var exampleEmbed = new MessageEmbed()
+          .setColor('#0000A3')
+          .setDescription(outputString);
+        client.channels.cache.get(GENERAL_CHANNEL_ID).send({ embeds: [exampleEmbed] });
+        outputString = '';
+      }
+      var formattedDate = formatDate(new Date(obj.date));
+      outputString += `\nWallet [*${obj.wallet}*] ${obj.operazione} **${obj.target}** [*${formattedDate}*]`;
+    });
+    if (res.length == 0) outputString += `\nNo transaction found`;
+    var exampleEmbed = new MessageEmbed()
+      .setColor('#0000A3')
+      .setDescription(outputString);
+    return client.channels.cache.get(GENERAL_CHANNEL_ID).send({ embeds: [exampleEmbed] });
+  } catch (e) {
+    console.log("Error: " + e);
   }
-
-  const res = await callScan();
-  if (res.length == 0) return;
-  var outputString = '';
-  outputString += "Timeframe [1h][Mode: full]";
-  outputString += "Analyzed wallet [41]\n";
-  res.forEach(function(obj) {
-    if (outputString.length > 3500) {
-      var exampleEmbed = new MessageEmbed()
-        .setColor('#0000A3')
-        .setDescription(outputString);
-      msg.channel.send({ embeds: [exampleEmbed] });
-      outputString = '';
-    }
-    outputString += `\nWallet [${obj.wallet}] ${obj.operazione} ${obj.target}`;
-  });
-  var exampleEmbed = new MessageEmbed()
-    .setColor('#0000A3')
-    .setDescription(outputString);
-  return msg.channel.send({ embeds: [exampleEmbed] });
 };
 
-async function scan() {
+async function scan(hoursLimit) {
+  try {
+    const res = await callScan();
+    var outputString = '';
+    var nowH = new Date().addHours(2);
+    nowH.setMinutes(0);
+    nowH.setSeconds(0);
+    nowH = moment(nowH).format('HH:mm:ss a');
+    var beforeH = new Date().addHours(2);
+    beforeH.setMinutes(0);
+    beforeH.setSeconds(0);
+    beforeH = moment(subtractHours(hoursLimit, beforeH)).format('HH:mm:ss a');
+    outputString += "Timeframe [" + hoursLimit + "h][" + beforeH + " - " + nowH + "]\n";
+    outputString += "Analyzed wallet [41]\n";
+    const account = res.reduce((acc, cur) => {
+      const idx = cur.id;
+      if (acc[idx]) acc[idx].push(cur); // if already there, just push
+      else acc[idx] = [cur];            // otherwise initialise
+      return acc;
+    }, [])
 
-  const res = await callScan();
-  if (res.length == 0) return;
-  var outputString = '';
-  var nowH = moment(new Date()).format('HH:mm:ss a');
-  var beforeH = moment(subtractHours(1, new Date())).format('HH:mm:ss a');
-  outputString += "Timeframe [1h][" + nowH + " - " + beforeH + "]\n";
-  outputString += "Analyzed wallet [41]\n";
-  const account = res.reduce((acc, cur) => {
-    const idx = cur.id;
-    if (acc[idx]) acc[idx].push(cur); // if already there, just push
-    else acc[idx] = [cur];            // otherwise initialise
-    return acc;
-  }, [])
+    var added = false;
+    account.forEach(function(obj) {
+      var wallet = obj[0].wallet;
+      var helper = {};
+      var result = [];
+      result = obj.reduce(function(r, o) {
+        var hours = Math.abs(new Date() - new Date(o.date)) / 36e5;
+        if (!(hours < hoursLimit)) {
+          return r;
+        }
+        var key = o.operazione + " - " + trimNftName(o.target);
+        if (!helper[key]) {
+          helper[key] = { "oprazione": o.operazione, "target": trimNftName(o.target), "occurence": 1 }
+          r.push(helper[key]);
+        } else {
+          helper[key].occurence += 1;
+        }
+        return r;
+      }, []);
 
-  account.forEach(function(obj) {
+      result = result != null && result != undefined ? result : [];
+      result.forEach(function(inn) {
+        added = true;
+        if (outputString.length > 3500) {
+          var exampleEmbed = new MessageEmbed()
+            .setColor('#0099ff')
+            .setDescription(outputString);
+          client.channels.cache.get(GENERAL_CHANNEL_ID).send({ embeds: [exampleEmbed] });
+          outputString = '';
+        }
+        outputString += `\nWallet [*${wallet}*] ${inn.oprazione} **${inn.occurence} ${inn.target}**`;
+      });
+    });
+    if (!added) outputString += `\nNo transaction found`;
 
-    var wallet = obj[0].wallet;
+    var exampleEmbed = new MessageEmbed()
+      .setColor('#0099ff')
+      .setDescription(outputString);
+    return client.channels.cache.get(GENERAL_CHANNEL_ID).send({ embeds: [exampleEmbed] });
+  } catch (e) {
+    console.log("Error: " + e);
+  }
+};
+
+async function scanCollection(hoursLimit, name) {
+  try {
+    const res = await callScan();
+    var outputString = '';
+    var nowH = new Date().addHours(2);
+    nowH.setMinutes(0);
+    nowH.setSeconds(0);
+    nowH = moment(nowH).format('HH:mm:ss a');
+    var beforeH = new Date().addHours(2);
+    beforeH.setMinutes(0);
+    beforeH.setSeconds(0);
+    beforeH = moment(subtractHours(hoursLimit, beforeH)).format('HH:mm:ss a');
+    outputString += "Timeframe [" + hoursLimit + "h][" + beforeH + " - " + nowH + "]\n";
+    outputString += "Analyzed wallet [41]\n";
+    res.forEach(function(obj) {
+      obj.target = trimNftName(obj.target);
+    });
+
+    var collection = [];
     var helper = {};
-    var result = obj.reduce(function(r, o) {
-      var key = o.operazione + " - " + trimNftName(o.target);
+    collection = res.reduce(function(r, o) {
+      var hours = Math.abs(new Date() - new Date(o.date)) / 36e5;
+      if (!(hours < hoursLimit)) {
+        return r;
+      }
+      if (name != '' && name.toLowerCase().replace(/\s/g, '') != o.target.toLowerCase().replace(/\s/g, '')) {
+        return r;
+      }
+      var key = o.operazione + " - " + o.target;
       if (!helper[key]) {
-        helper[key] = { "oprazione": o.operazione, "target": trimNftName(o.target), "occurence": 1 }
+        helper[key] = { "oprazione": o.operazione, "target": o.target, "occurence": 1 }
         r.push(helper[key]);
       } else {
         helper[key].occurence += 1;
@@ -126,7 +239,11 @@ async function scan() {
       return r;
     }, []);
 
-    result.forEach(function(inn) {
+    collection = collection != null && collection != undefined ? collection : [];
+    var added = false;
+    collection.forEach(function(inn) {
+      var coll = inn.target;
+      added = true;
       if (outputString.length > 3500) {
         var exampleEmbed = new MessageEmbed()
           .setColor('#0099ff')
@@ -134,64 +251,23 @@ async function scan() {
         client.channels.cache.get(GENERAL_CHANNEL_ID).send({ embeds: [exampleEmbed] });
         outputString = '';
       }
-      outputString += `\nWallet [*${wallet}*] ${inn.oprazione} **${inn.occurence} ${inn.target}**`;
+      outputString += `\nCollection [**${coll}**] ${inn.oprazione} **${inn.occurence} times**`;
     });
-  });
-  //return msg.channel.createMessage(```md\n${outputString}```);
+    if (!added) outputString += `\nNo transaction found`;
 
-  var exampleEmbed = new MessageEmbed()
-    .setColor('#0099ff')
-    .setDescription(outputString);
-  return client.channels.cache.get(GENERAL_CHANNEL_ID).send({ embeds: [exampleEmbed] });
-};
+    var exampleEmbed = new MessageEmbed()
+      .setColor('#0099ff')
+      .setDescription(outputString);
+    return client.channels.cache.get(GENERAL_CHANNEL_ID).send({ embeds: [exampleEmbed] });
+  } catch (e) {
+    console.log("Error: " + e);
+  }
+}
 
-async function manualScan(msg) {
+// TODO
+async function scanWallet(hoursLimit) {
 
-  const res = await callScan();
-  if (res.length == 0) return;
-  var outputString = '';
-  outputString += "Timeframe [1h][Mode: manual]\n";
-  outputString += "Analyzed wallet [41]\n";
-  const account = res.reduce((acc, cur) => {
-    const idx = cur.id;
-    if (acc[idx]) acc[idx].push(cur); // if already there, just push
-    else acc[idx] = [cur];            // otherwise initialise
-    return acc;
-  }, [])
-
-  account.forEach(function(obj) {
-
-    var wallet = obj[0].wallet;
-    var helper = {};
-    var result = obj.reduce(function(r, o) {
-      var key = o.operazione + " - " + trimNftName(o.target);
-      if (!helper[key]) {
-        helper[key] = { "oprazione": o.operazione, "target": trimNftName(o.target), "occurence": 1 }
-        r.push(helper[key]);
-      } else {
-        helper[key].occurence += 1;
-      }
-      return r;
-    }, []);
-
-    result.forEach(function(inn) {
-      if (outputString.length > 3500) {
-        var exampleEmbed = new MessageEmbed()
-          .setColor('#0099ff')
-          .setDescription(outputString);
-        msg.channel.send({ embeds: [exampleEmbed] });
-        outputString = '';
-      }
-      outputString += `\nWallet [*${wallet}*] ${inn.oprazione} **${inn.occurence} ${inn.target}**`;
-    });
-  });
-  //return msg.channel.createMessage(```md\n${outputString}```);
-
-  var exampleEmbed = new MessageEmbed()
-    .setColor('#0099ff')
-    .setDescription(outputString);
-  return msg.channel.send({ embeds: [exampleEmbed] });
-};
+}
 
 /* ------ LOGIC END ------ */
 
@@ -223,8 +299,34 @@ function subtractHours(numOfHours, date = new Date()) {
   return date;
 }
 
+function padTo2Digits(num) {
+  return num.toString().padStart(2, '0');
+}
+
+function formatDate(date) {
+  return (
+    [
+      date.getFullYear(),
+      padTo2Digits(date.getMonth() + 1),
+      padTo2Digits(date.getDate()),
+    ].join('-') +
+    ' ' +
+    [
+      padTo2Digits(date.getHours()),
+      padTo2Digits(date.getMinutes()),
+      padTo2Digits(date.getSeconds()),
+    ].join(':')
+  );
+}
+
+Date.prototype.addHours = function(h) {
+  this.setTime(this.getTime() + (h * 60 * 60 * 1000));
+  return this;
+}
+
 app.get('/', (req, res) => res.send(`I'm alive!`));
 
 app.listen(port, () => {
-  client.login(mySecret);
 });
+
+client.login(mySecret);
